@@ -1,0 +1,196 @@
+library(dplyr)
+library(gtools)
+library(gmodels)
+library(ggplot2)
+library(class)
+library(tidyr)
+library(lattice)
+library(caret)
+library(rmdformats)
+
+head(heart)
+str(heart)
+summary(heart)
+
+glimpse(heart)
+
+
+variance = var(heart$chol)
+print(variance)
+
+variance = var(heart$age)
+print(variance)
+
+
+std = sd(heart$age)
+print(std)
+
+
+heart <- heart %>%
+  #mutate_if(is.integer, as.factor) %>%
+  mutate(cp = as.factor(cp),
+         restecg = as.factor(restecg),
+         age = as.factor(age),
+         caa = as.factor(caa),
+         slp = as.factor(slp),
+         cp = as.factor(cp),
+         thall = as.factor(thall),
+         sex = factor(sex, levels = c(0,1), labels = c("female", "male")),
+         fbs = factor(fbs, levels = c(0,1), labels = c("False", "True")),
+         exng = factor(exng, levels = c(0,1), labels = c("No", "Yes")),
+         output = factor(output, levels = c(0,1), labels = c("Health", "Not Health")))
+
+glimpse(heart)
+
+
+colSums(is.na(heart))
+
+
+
+prop.table(table(heart$output))
+
+table(heart$output)
+
+
+set.seed(100)
+index <- sample(nrow(heart), nrow(heart)*0.7)
+
+# Data train
+train_heart <- heart[index,]
+
+# Data test
+test_heart <- heart[-index,]
+
+
+prop.table(table(train_heart$output))
+
+
+# Create a model
+model1 <- glm(formula = output ~ sex + cp +  fbs + thall, family = "binomial", data = train_heart)
+
+# Model summary
+summary(model1)
+
+
+# Create a model without predictor
+model_none <- glm(output ~ 1, family = "binomial", data = train_heart)
+
+# Create a model with all predictor
+model_all <- glm(output ~ ., family = "binomial", data = train_heart)
+# Stepwise regression backward
+model_back <- step(object = model_all, direction = "backward", trace = F)
+
+# Stepwise regression forward
+model_forw <- step(object = model_all, scope = list(lower = model_none, upper = model_all), direction = "forward", trace = F)
+
+# Stepwise regression both
+model_both <- step(object = model_all, scope = list(lower = model_none, upper = model_all), direction = "both", trace = F)
+
+
+# Model Summary
+
+# Backward
+
+summary(model_back)
+
+
+# Forward
+
+summary(model_forw)
+
+
+# Both
+
+summary(model_both)
+
+
+test_heart$prediction <-  predict(model_both, type = "response", newdata = test_heart)
+
+# Create Plot
+
+test_heart %>%
+  ggplot(aes(x=prediction)) +
+  geom_density() +
+  labs(title = "Probabilities Distribution of Prediction Data") +
+  theme_minimal()
+
+
+pred <- predict(model_both, type = "response", newdata = test_heart)
+
+result_pred <- ifelse(pred >= 0.5, "Not Health", "Health")
+
+# Put our result prediction into our test data
+
+test_heart$prediction <- result_pred
+
+test_heart %>%
+  select(output, prediction) %>%
+  head(5)
+
+
+
+conf_mat <- confusionMatrix(as.factor(result_pred), reference = test_heart$output, positive = "Not Health")
+
+conf_mat
+
+
+# Return the probability value
+
+model_both$coefficients %>%
+  inv.logit() %>%
+  data.frame()
+
+
+# Create dummy variable
+
+dummy <- dummyVars("~output + sex +cp + trtbps + chol + fbs + restecg + thalachh + exng + oldpeak + slp + caa + thall", data = heart)
+
+# Create new data frame
+
+dummy <- data.frame(predict(dummy, newdata = heart))
+
+# Check our data frame structure
+
+str(dummy)
+
+
+dummy$output.Health <- NULL
+dummy$sex.female <- NULL
+dummy$fbs.False <- NULL
+dummy$exng.No <- NULL
+
+
+head(dummy, 3)
+
+
+set.seed(100)
+
+# Predictor
+
+train_x <- dummy[index, -1]
+test_x <- dummy[-index, -1]
+
+# Target
+
+train_y <- dummy[index, 1]
+test_y <- dummy[-index, 1]
+
+
+sqrt(nrow(train_x))
+
+train_x <- scale(x = train_x)
+test_x <- scale(x = test_x, center = attr(train_x, "scaled:center"), scale = attr(train_x, "scaled:scale"))
+
+pred_knn <- knn(train = train_x, test = test_x, cl = train_y, k = 14)
+
+pred_knn <- pred_knn %>%
+  as.data.frame() %>%
+  mutate(pred_knn = factor(pred_knn, levels = c(0,1), labels = c("Health", "Not Health"))) %>%
+  select(pred_knn)
+
+test_y <- test_y %>%
+  as.data.frame() %>%
+  mutate(target = factor(test_y, levels = c(0,1), labels = c("Health", "Not Health"))) %>%
+  select(target)
+
+
